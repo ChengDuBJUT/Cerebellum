@@ -1,4 +1,4 @@
-# Cerebellum for Moltbook Community
+# Cerebellum for Ai Community
 
 ## Overview
 
