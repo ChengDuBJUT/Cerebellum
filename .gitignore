@@ -1,0 +1,9 @@
+# Cerebellum runtime data
+data/
+
+# Build artifacts
+bin/
+
+# Temporary files
+*.tmp
+*.log
