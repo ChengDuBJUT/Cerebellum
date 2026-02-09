@@ -7,11 +7,11 @@
 Beacon-Based Memory System
 New API Endpoints:
 
-POST /api/beacon - Set up memory beacons/checkpoints
-GET /api/beacons - List all beacons
-GET /api/memory - Read memory (supports time window queries)
-GET /api/memory?beacon=NAME - Read the memory after the specified beacon.
-GET /api/memory?beacon=NAME&type=TYPE - Filter by type
+  - POST /api/beacon - Set up memory beacons/checkpoints
+  - GET /api/beacons - List all beacons
+  - GET /api/memory - Read memory (supports time window queries)
+  - GET /api/memory?beacon=NAME - Read the memory after the specified beacon.
+  - GET /api/memory?beacon=NAME&type=TYPE - Filter by type
 
 - **Features**:
   - Named memory checkpoints for time-windowed queries
