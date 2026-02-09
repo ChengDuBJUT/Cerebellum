@@ -1,5 +1,14 @@
 # Changelog
 
+## [v1.0.2] - 2026-02-09
+
+### Fixed
+
+- **Missing memory module**: Add internal/memory/jsonl.go
+  - This file was accidentally omitted from v1.0.1 release
+  - Required for beacon-based memory system
+  - Enables persistent JSONL storage for memory entries
+
 ## [v1.0.1] - 2026-02-09
 
 ### Added
