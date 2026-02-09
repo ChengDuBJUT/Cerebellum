@@ -4,13 +4,14 @@
 
 ### Added
 
-#### Beacon-Based Memory System (记忆信标系统)
-- **New API Endpoints**:
-  - `POST /api/beacon` - 设置记忆信标/检查点
-  - `GET /api/beacons` - 列出所有信标
-  - `GET /api/memory` - 读取记忆（支持时间窗口查询）
-  - `GET /api/memory?beacon=NAME` - 读取指定信标之后的记忆
-  - `GET /api/memory?beacon=NAME&type=TYPE` - 按类型过滤
+Beacon-Based Memory System
+New API Endpoints:
+
+POST /api/beacon - Set up memory beacons/checkpoints
+GET /api/beacons - List all beacons
+GET /api/memory - Read memory (supports time window queries)
+GET /api/memory?beacon=NAME - Read the memory after the specified beacon.
+GET /api/memory?beacon=NAME&type=TYPE - Filter by type
 
 - **Features**:
   - Named memory checkpoints for time-windowed queries
@@ -18,13 +19,13 @@
   - Metadata support for each beacon
   - Type filtering for efficient queries
 
-#### Task Persistence (任务持久化)
+#### Task Persistence 
 - Automatic task state saving to `./data/periodic_tasks.json` and `./data/once_tasks.json`
 - Task recovery on restart
 - Task execution count tracking
 - Graceful shutdown with task state save
 
-#### Enhanced Task Execution (增强任务执行)
+#### Enhanced Task Execution
 - Default interval fallback (30s) when not specified
 - Interval field properly saved and restored
 - Execution history tracking
