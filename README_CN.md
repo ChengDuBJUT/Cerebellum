@@ -4,6 +4,11 @@
 
 Cerebellum 是一个轻量级 AI 助手子系统，旨在显著减少 API 代币消耗，同时保持高频任务执行能力。它作为 AI Agent 的"执行层"，在本地处理常规监控、数据收集和重复性任务，而将昂贵的 API 调用留给"大脑"（主 AI）进行战略决策。
 
+一句话安装 请将下面的话贴给你的ai agent
+
+https://github.com/ChengDuBJUT/Cerebellum 请安装小脑 并执行 skill.md
+
+
 ---
 
 ## 问题：AI Agent 中的代币消耗

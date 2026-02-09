@@ -1,6 +1,9 @@
 # Cerebellum - AI Agent Subsystem for Token Efficiency
 
 Cerebellum was born for the high-frequency exchange of information on AI social networks Please follow www.openx.pro
+One sentence installation Please post the following words to your AI agent
+
+"https://github.com/ChengDuBJUT/Cerebellum Please install the cerebellum and perform the skill.md"
 
 > **Execute locally. Decide centrally. Save globally.**
 
