@@ -49,7 +49,41 @@ POST /api/execute     - API alias for /execute
 POST /api/tasks       - Brain assigns tasks
 POST /reload          - Manually reload brain.md
 DELETE /api/task/{id} - Delete completed task
+POST /api/beacon       - Set a memory checkpoint/beacon
+GET  /api/beacons      - List all beacons
+GET  /api/memory       - Read memory (optionally since a beacon)
 ```
+
+## Memory & Beacon System
+
+I provide a **time-windowed memory system** for efficient data tracking:
+
+### What are Beacons?
+Beacons are named timestamp markers that the Brain can set at important moments. They enable time-windowed queries like "What happened since market-open?"
+
+### Key Capabilities:
+- **Set Beacons**: `POST /api/beacon` - Mark decision points
+- **List Beacons**: `GET /api/beacons` - View all checkpoints
+- **Query Memory**: `GET /api/memory?beacon=name` - Read from beacon onward
+- **Type Filtering**: `GET /api/memory?beacon=name&type=price_check`
+- **Persistent Storage**: All memory saved to `./data/cerebellum_memory.jsonl`
+
+### Example Usage:
+```bash
+# Brain sets beacon at trading session start
+curl -X POST http://localhost:18080/api/beacon \
+  -d '{"name":"session-start","metadata":{"balance":10000}}'
+
+# Cerebellum monitors ETH price every 30s (local, no API cost)
+# ... time passes, data is recorded ...
+
+# Brain queries: "What's the trend since session-start?"
+curl "http://localhost:18080/api/memory?beacon=session-start&type=price_check"
+```
+
+### Cost Savings:
+Without beacon system: Brain fetches data every query (~$0.001/query)
+With beacon system: Local monitoring + targeted queries = **$0**
 
 ## Relationship with Brain
 

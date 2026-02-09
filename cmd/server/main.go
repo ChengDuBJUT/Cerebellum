@@ -65,6 +65,9 @@ func main() {
 	mux.HandleFunc("/execute", httpServer.HandleExecute)
 	mux.HandleFunc("/api/chat", httpServer.HandleChat)
 	mux.HandleFunc("/api/execute", httpServer.HandleExecute)
+	mux.HandleFunc("/api/beacon", httpServer.HandleSetBeacon)
+	mux.HandleFunc("/api/memory", httpServer.HandleReadMemory)
+	mux.HandleFunc("/api/beacons", httpServer.HandleListBeacons)
 
 	log.Printf("DEBUG: Mux handlers registered, addr=%s", addr)
 
@@ -87,6 +90,15 @@ func main() {
 	<-quit
 
 	log.Println("Shutting down...")
+
+	// Save tasks before shutdown
+	log.Println("Saving tasks to disk...")
+	if err := httpServer.SaveTasks(); err != nil {
+		log.Printf("Warning: Failed to save tasks on shutdown: %v", err)
+	} else {
+		log.Println("✓ Tasks saved successfully")
+	}
+
 	watcher.Stop()
 	log.Println("Stopped")
 }

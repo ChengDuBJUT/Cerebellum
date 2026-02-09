@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -12,6 +13,7 @@ import (
 
 	"cerebellum/internal/config"
 	"cerebellum/internal/llm"
+	"cerebellum/internal/memory"
 	"cerebellum/internal/store"
 	"cerebellum/internal/task"
 )
@@ -23,6 +25,7 @@ type Server struct {
 	llm            *llm.OllamaClient
 	planner        *task.PlanGenerator
 	systemIdentity string
+	memory         *memory.JSONLMemory
 	mu             sync.Mutex
 }
 
@@ -34,25 +37,105 @@ func NewServer(cfg *config.Config, store *store.MarkdownStore, llm *llm.OllamaCl
 		systemIdentity = string(content)
 	}
 
+	// Initialize memory system
+	mem, err := memory.NewJSONLMemory("./data")
+	if err != nil {
+		log.Printf("Warning: Failed to initialize memory: %v", err)
+		mem = nil
+	}
+
+	// Initialize planner with memory and data directory
+	planner := task.NewPlanGenerator(mem)
+	planner.SetDataDir("./data")
+
+	// Load previous tasks from disk
+	if err := planner.LoadTasks(); err != nil {
+		log.Printf("Info: No previous tasks to load: %v", err)
+	} else {
+		log.Println("✓ Previous tasks loaded from disk")
+		// Show resumable tasks
+		resumable := planner.GetResumableTasks()
+		if len(resumable) > 0 {
+			log.Printf("✓ Found %d tasks to resume", len(resumable))
+		}
+	}
+
 	return &Server{
 		cfg:            cfg,
 		store:          store,
 		llm:            llm,
-		planner:        task.NewPlanGenerator(),
+		planner:        planner,
 		systemIdentity: systemIdentity,
+		memory:         mem,
 	}
 }
 
-// StartTaskExecutor 启动任务执行器
+// StartTaskExecutor 启动任务执行器（带持久化和智能报告）
 func (s *Server) StartTaskExecutor() {
+	// 立即执行一次，恢复之前的任务
+	s.mu.Lock()
+	resumableTasks := s.planner.GetResumableTasks()
+	if len(resumableTasks) > 0 {
+		log.Printf("Resuming %d tasks from previous session", len(resumableTasks))
+		s.planner.ExecuteTasks(s.executeCommand)
+		// 保存执行后的状态
+		if err := s.planner.SaveTasks(); err != nil {
+			log.Printf("Warning: Failed to save tasks: %v", err)
+		}
+	}
+	s.mu.Unlock()
+
+	// 启动定时器
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
 	for range ticker.C {
 		s.mu.Lock()
+
+		// 执行任务
 		s.planner.ExecuteTasks(s.executeCommand)
+
+		// 保存任务状态到磁盘
+		if err := s.planner.SaveTasks(); err != nil {
+			log.Printf("Warning: Failed to save tasks: %v", err)
+		}
+
+		// 检查是否有显著变化（变化数 > 1），如果有则触发报告
+		if s.planner.HasSignificantChanges() {
+			changes := s.planner.GetAndClearChanges()
+			log.Printf("Significant changes detected (%d), notifying brain...", len(changes))
+
+			// 将变化记录到内存
+			if s.memory != nil {
+				for _, change := range changes {
+					s.memory.Write("task_change", change.TaskID,
+						fmt.Sprintf("Task %s: %s -> %s", change.Type, change.OldStatus, change.NewStatus),
+						change)
+				}
+			}
+
+			// 触发大脑报告（这里可以添加HTTP回调或Webhook）
+			s.notifyBrain(changes)
+		}
+
 		s.mu.Unlock()
 	}
+}
+
+// notifyBrain 通知大脑有重要变化
+func (s *Server) notifyBrain(changes []task.TaskChange) {
+	// 记录到日志（实际可以实现HTTP回调通知大脑）
+	log.Printf("[BRAIN NOTIFICATION] %d task changes reported", len(changes))
+
+	// 这里可以添加：发送到大脑的HTTP端点
+	// report := map[string]interface{}{
+	//     "timestamp": time.Now().Format(time.RFC3339),
+	//     "type":      "task_changes",
+	//     "count":     len(changes),
+	//     "changes":   changes,
+	//     "summary":   s.planner.GetReport(),
+	// }
+	// go s.sendToBrain(report)
 }
 
 // executeCommand 执行命令
@@ -136,9 +219,9 @@ func (s *Server) HandleAPIReport(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"report":          report,
 		"total_plans":     len(plans),
-		"pending_count":   len(report.Pending),
-		"completed_count": len(report.Completed),
-		"failed_count":    len(report.Failed),
+		"pending_count":   len(report["pending"].([]string)),
+		"completed_count": len(report["completed"].([]task.TaskResult)),
+		"failed_count":    len(report["failed"].([]task.TaskResult)),
 	})
 }
 
@@ -160,9 +243,9 @@ func (s *Server) HandleAPIStatus(w http.ResponseWriter, r *http.Request) {
 		"llm_host":        s.llm.GetHost(),
 		"llm_model":       s.llm.GetModel(),
 		"total_tasks":     len(plans),
-		"pending_tasks":   len(report.Pending),
-		"completed_tasks": len(report.Completed),
-		"failed_tasks":    len(report.Failed),
+		"pending_tasks":   report["pending_count"],
+		"completed_tasks": report["completed_count"],
+		"failed_tasks":    report["failed_count"],
 		"last_updated":    time.Now().Format(time.RFC3339),
 	})
 }
@@ -385,5 +468,121 @@ func (s *Server) HandleReload(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"status":      "reloaded",
 		"tasks_count": len(Tasks),
+	})
+}
+
+// SaveTasks 保存任务状态到磁盘（用于优雅关闭）
+func (s *Server) SaveTasks() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.planner.SaveTasks()
+}
+
+// HandleSetBeacon POST /api/beacon - 设置记忆信标
+func (s *Server) HandleSetBeacon(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Name     string                 `json:"name"`
+		Metadata map[string]interface{} `json:"metadata,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if req.Name == "" {
+		http.Error(w, "Beacon name required", http.StatusBadRequest)
+		return
+	}
+
+	if s.memory == nil {
+		http.Error(w, "Memory system not initialized", http.StatusInternalServerError)
+		return
+	}
+
+	if err := s.memory.SetBeacon(req.Name, req.Metadata); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to set beacon: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"status": "beacon_set",
+		"name":   req.Name,
+		"time":   time.Now().Format(time.RFC3339),
+	})
+}
+
+// HandleReadMemory GET /api/memory?beacon=xxx&type=xxx - 读取记忆
+func (s *Server) HandleReadMemory(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if s.memory == nil {
+		http.Error(w, "Memory system not initialized", http.StatusInternalServerError)
+		return
+	}
+
+	beacon := r.URL.Query().Get("beacon")
+	entryType := r.URL.Query().Get("type")
+
+	if beacon == "" {
+		// 如果没有指定信标，返回最近的100条
+		entries, err := s.memory.ReadRecent(100)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to read memory: %v", err), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"entries": entries,
+			"count":   len(entries),
+		})
+		return
+	}
+
+	// 从信标读取
+	entries, err := s.memory.ReadSinceBeacon(beacon, entryType)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to read memory: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"beacon":  beacon,
+		"entries": entries,
+		"count":   len(entries),
+	})
+}
+
+// HandleListBeacons GET /api/beacons - 列出所有信标
+func (s *Server) HandleListBeacons(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if s.memory == nil {
+		http.Error(w, "Memory system not initialized", http.StatusInternalServerError)
+		return
+	}
+
+	beacons, err := s.memory.ListBeacons()
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to list beacons: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"beacons": beacons,
+		"count":   len(beacons),
 	})
 }

@@ -220,6 +220,82 @@ Cerebellum provides a REST API at `localhost:18080`:
 | `/api/tasks` | POST | Brain assigns tasks to cerebellum |
 | `/api/report` | GET | Get execution report |
 | `/api/task/{id}` | DELETE | Delete a completed task |
+| `/api/beacon` | POST | Set a memory checkpoint/beacon |
+| `/api/beacons` | GET | List all beacons/checkpoints |
+| `/api/memory` | GET | Read memory (optionally since a beacon) |
+
+### Beacon-Based Memory System (Memory Checkpoints)
+
+Cerebellum provides a **time-windowed memory system** that allows the Brain to mark important moments (beacons) and later query memory from those points.
+
+**Key Concepts:**
+- **Beacon**: A named timestamp marker set by the Brain
+- **Memory**: JSONL-based persistent storage of events, tasks, and data
+- **Time-windowed queries**: Query memory since any beacon
+
+**Use Cases:**
+- Monitor data between decision points (e.g., "What happened since market-open?")
+- Compare periods (e.g., "Compare metrics before vs after deployment")
+- Track workflow progress with checkpoint markers
+- Historical analysis without re-fetching data
+
+**API Examples:**
+
+```bash
+# Set a beacon (Brain marks a decision point)
+curl -X POST http://localhost:18080/api/beacon \
+  -H "Content-Type: application/json" \
+  -d '{"name":"market-open","metadata":{"note":"Trading session start","threshold":2000}}'
+
+# List all beacons
+curl http://localhost:18080/api/beacons
+# Response: {"beacons":[{"name":"market-open","timestamp":"...",...}],"count":1}
+
+# Query memory since a beacon
+curl "http://localhost:18080/api/memory?beacon=market-open"
+# Returns all entries from beacon onward
+
+# Query specific entry types since beacon
+curl "http://localhost:18080/api/memory?beacon=market-open&type=price_check"
+# Returns only "price_check" type entries
+
+# Read recent memory (last 100 entries)
+curl http://localhost:18080/api/memory
+```
+
+**ETH Price Monitor Example:**
+
+```bash
+# Step 1: Brain sets beacon at trading session start
+curl -X POST http://localhost:18080/api/beacon \
+  -d '{"name":"session-start","metadata":{"balance":10000}}'
+
+# Step 2: Cerebellum monitors ETH price every 30s (local execution)
+curl -X POST http://localhost:18080/api/tasks \
+  -d '{"tasks":[{"id":"eth-monitor","type":"periodic","interval":"30s","command":"fetch ETH price"}]}'
+
+# Step 3: Later, Brain queries trends since session-start
+curl "http://localhost:18080/api/memory?beacon=session-start&type=price_check"
+# Response includes all price checks since beacon
+
+# Step 4: Brain analyzes trend and makes decision
+# All data persisted in ./data/cerebellum_memory.jsonl
+```
+
+**Memory Entry Structure:**
+```json
+{
+  "timestamp": "2026-02-09T16:28:30+08:00",
+  "type": "beacon",
+  "task_id": "market-open",
+  "content": "Beacon set: market-open",
+  "data": {"note": "Trading session start", "threshold": 2000}
+}
+```
+
+**Cost Savings:**
+- Without Cerebellum: Brain fetches data every query (~$0.001/query)
+- With Cerebellum: Local monitoring + beacon-based queries = **$0**
 
 ### 2. brain.md Task Definition
 
@@ -576,6 +652,34 @@ ls -lh models/blobs/
 # Should show: sha256-8de95da... (336MB) - the main model file
 ```
 
+#### 9. Beacon System Usage Guide
+
+**Setting Beacons for Time-Windowed Analysis:**
+
+Beacons are powerful for marking decision points and querying historical data:
+
+```bash
+# Set beacons at key moments
+curl -X POST http://localhost:18080/api/beacon \
+  -d '{"name":"deploy-start","metadata":{"version":"1.2.3"}}'
+
+# ... Cerebellum monitors and records data ...
+
+# Query all activity since beacon
+curl "http://localhost:18080/api/memory?beacon=deploy-start"
+
+# Compare two periods
+curl "http://localhost:18080/api/memory?beacon=deploy-start&type=error"
+curl "http://localhost:18080/api/memory?beacon=deploy-end&type=error"
+```
+
+**Demo Scripts:**
+- Windows: `test-eth-monitor.bat` - ETH price monitoring demo
+- Linux/macOS: `test-eth-monitor.sh` - ETH price monitoring demo
+- Quick test: `test-beacon-quick.bat` - Beacon system quick test
+
+**Documentation:** `DEMO-ETH-MONITOR.md`
+
 #### 10. Best Practices Summary
 
 ✅ **DO**:
@@ -584,6 +688,8 @@ ls -lh models/blobs/
 - Group related tasks with similar intervals
 - Monitor `/api/report` regularly
 - Use `metadata` field for additional context (optional)
+- Set beacons at decision points for time-windowed queries
+- Use type filters when querying memory (`type=price_check`)
 
 ❌ **DON'T**:
 - Use custom task types (stick to `"periodic"` and `"once"`)
@@ -591,3 +697,4 @@ ls -lh models/blobs/
 - Forget to check reports for completed tasks
 - Use the same ID for multiple tasks
 - Expect immediate execution of periodic tasks (wait for interval)
+- Query all memory without filters (use beacons for efficiency)
